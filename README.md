@@ -1,85 +1,82 @@
-# MultiAgentChatAI
-Conversational AI project based on multi-agent architecture.
+# multi-agent-chat
 
-## Prerequisites
+A FastAPI service that puts a conversational agent behind an HTTP endpoint, built on [AutoGen](https://microsoft.github.io/autogen/) with Redis holding the conversation state.
 
-Make sure you have the following tools installed before starting:
+The problem it solves is the one every agent framework runs into when it leaves the notebook: agents are stateful objects and HTTP requests are not. This keeps the transcript in Redis and rebuilds the agents around it on each call.
 
-- [Python 3.11+](https://www.python.org/downloads/)
-- [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/install/)
+## The API
 
-## Installation
+| Method | Path     | Body                      |
+| ------ | -------- | ------------------------- |
+| `POST` | `/chat`  | `{ message, session_id }` |
+| `GET`  | `/`      | —                         |
 
-### 1. Clone the repository
-```bash
-git clone git@github.com:jesusroncal94/MultiAgentChatAI.git
-cd MultiAgentChatAI
+The response carries the `session_id` and the assistant's reply. Sending the same `session_id` again continues the conversation.
+
+Interactive documentation is at `/docs`, with a ReDoc rendering at `/redoc`.
+
+## How a session survives between requests
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as FastAPI
+    participant R as Redis
+    participant G as AutoGen agents
+
+    C->>A: POST /chat (message, session_id)
+    A->>R: read transcript
+    A->>G: rebuild agents, replay transcript
+    G-->>A: reply
+    A->>R: write transcript (TTL)
+    A-->>C: reply
 ```
 
-### 2. Set up dependencies
+Two agents are constructed per request: an `AssistantAgent` carrying the system prompt, and a `UserProxyAgent` standing in for the customer with manual input disabled, since there is no human at a terminal to ask. The stored transcript is replayed into both before the new message arrives, so the model sees the whole conversation even though the objects holding it were created moments earlier.
 
-#### Using `requirements.txt`
+Sessions expire on their own. Redis carries the TTL, so nothing needs to sweep old conversations.
 
-Install dependencies with `pip`:
-```bash
-pip install -r requirements.txt
+## Configuration
+
+```
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_DB=0
+CHAT_SESSION_TTL=24:00:00
+OAI_CONFIG_LIST=[{"model":"...","api_type":"...","api_key":"...","base_url":"...","api_version":"..."}]
 ```
 
-#### Using Astral's `uv` (optional)
+`OAI_CONFIG_LIST` is AutoGen's provider list, parsed and validated by Pydantic rather than trusted as raw JSON. Because each entry carries `api_type`, `base_url`, and `api_version`, the service works against Azure OpenAI as readily as against the public API, and several entries let AutoGen fall back between providers. The API key is held as a `SecretStr`, so it will not surface in a log line or a stack trace.
 
-If you prefer managing dependencies with `uv`, install Astral and then synchronize:
-```bash
-pip install astral-py
-uv sync
-```
+The assistant's persona lives in `src/prompts/assistant.prompt`, outside the code, so changing its behaviour is not a deployment of new logic.
 
-### 3. Configure the environment file
+## Running it
 
-Create a `.env` file based on the provided `.env.example` file:
+Requires Python 3.11+ and Docker.
+
 ```bash
 cp .env.example .env
-```
-Modify the `.env` file to include your specific configuration details.
-
-### 4. Configure Redis
-
-The project uses Redis for caching and internal communication. Make sure Docker and Docker Compose are installed.
-
-#### Start Redis with `docker-compose` (recommended)
-
-Run the following command to start Redis as defined in the `compose.yaml` file:
-```bash
-docker-compose up redis -d
-```
-
-#### Use an external Redis instance (optional)
-
-If you have an external Redis instance configured, update the `.env` file:
-```
-REDIS_HOST=<your_redis_host>
-REDIS_PORT=<your_redis_port>
-```
-
-## Running the application
-
-1. Start the FastAPI server with virtual environment enabled:
-```bash
-python src/main.py
-```
-
-2. Start the FastAPI server using Astral's `uv`:
-```bash
+docker compose up redis -d
 uv run src/main.py
 ```
 
-2. Access the API in your browser:
-   - Interactive documentation: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-   - Redoc interface: [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
+The service listens on <http://localhost:8000>. Dependencies are also available through `requirements.txt` for a plain `pip install`.
 
-## Contributions
+## How the code is organised
 
-Contributions are welcome. Please open an *issue* or submit a *pull request* if you want to improve the project.
+```
+src/
+├── main.py              Entry point
+├── app.py               Application factory
+├── endpoints.py         Routes, agent construction, and session handling
+├── config.py            Validated settings, including the provider list
+└── prompts/             The assistant's system prompt
+```
+
+## Notes
+
+The current configuration runs one assistant against a user proxy. AutoGen's group conversations are what the architecture is there to allow — adding a second specialist agent is a change in `create_agents`, not a change in how sessions or transport work.
 
 ## License
 
-This project is licensed under the terms of the MIT license. See the `LICENSE` file for more details.
+MIT — see [LICENSE](LICENSE).
