@@ -55,7 +55,16 @@ The assistant's persona lives in `src/prompts/assistant.prompt`, outside the cod
 Requires Python 3.11+ and Docker.
 
 ```bash
+git clone https://github.com/jesusroncal94/multi-agent-chat.git
+cd multi-agent-chat
 cp .env.example .env
+```
+
+Fill in `OAI_CONFIG_LIST` with a real provider before starting. The example carries placeholders, and `base_url` is validated as a URL, so the placeholder fails on import of `config.py` with a Pydantic error rather than surfacing later on the first request.
+
+Then:
+
+```bash
 docker compose up redis -d
 uv run src/main.py
 ```
