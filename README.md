@@ -2,6 +2,8 @@
 
 A FastAPI service that puts a conversational agent behind an HTTP endpoint, built on [AutoGen](https://microsoft.github.io/autogen/) with Redis holding the conversation state.
 
+> **Status: demo.** This is a sample, not a maintained project. It is kept as a reference and receives no updates or support.
+
 The problem it solves is the one every agent framework runs into when it leaves the notebook: agents are stateful objects and HTTP requests are not. This keeps the transcript in Redis and rebuilds the agents around it on each call.
 
 ## The API
